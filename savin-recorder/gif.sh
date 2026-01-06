@@ -16,11 +16,6 @@ GIFFILE="$OUTDIR/GIFS/recording_${STAMP}.gif"
 
 sleep 0.3
 
-# --- ESTRATEGIA DE REDUCCIÓN DE PESO ---
-# 1. Bajamos a 10-12 FPS (el estándar para GIFs técnicos/web).
-# 2. Usamos dither=none o bayer con escala alta pero con menos colores.
-# 3. Forzamos una escala de colores más pequeña para que Gifsicle pueda agrupar píxeles.
-
 ffmpeg -i "$TEMPFILE" \
   -vf "mpdecimate,fps=12,scale=iw*0.8:-1:flags=lanczos,palettegen=max_colors=32:stats_mode=diff" \
   -y "$OUTDIR/GIFS/palette.png"
@@ -29,9 +24,6 @@ ffmpeg -i "$TEMPFILE" -i "$OUTDIR/GIFS/palette.png" \
   -lavfi "mpdecimate,fps=12,scale=iw*0.8:-1:flags=lanczos [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=1:diff_mode=rectangle" \
   -y "$GIFFILE"
 
-# Gifsicle con un toque de pérdida para forzar la reducción
-gifsicle --lossy=100 -O3 --colors 32 --no-transparent "$GIFFILE" -o "$GIFFILE"
-
 # --- SUBIDA Y NOTIFICACIÓN ---
 LINK=$(curl -s -F "file=@$GIFFILE" https://tmpfiles.org/api/v1/upload \
   | jq -r '.data.url' \
@@ -39,7 +31,7 @@ LINK=$(curl -s -F "file=@$GIFFILE" https://tmpfiles.org/api/v1/upload \
 
 if [ "$LINK" != "null" ]; then
     echo -n "$LINK" | wl-copy
-    notify-send "Grabación finalizada" "Peso reducido con éxito\nEnlace copiado al portapapeles"
+    notify-send "Grabación finalizada" "Enlace copiado al portapapeles"
     echo "Enlace directo: $LINK"
 else
     notify-send "Error" "No se pudo subir el archivo."
