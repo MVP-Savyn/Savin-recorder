@@ -65,6 +65,7 @@ public class SavinRecorder : Form {
     }
 
     public SavinRecorder() {
+        // 1. CONFIGURACIÓN VISUAL
         Rectangle totalArea = SystemInformation.VirtualScreen;
         this.StartPosition = FormStartPosition.Manual;
         this.Location = new Point(totalArea.Left, totalArea.Top);
@@ -75,6 +76,13 @@ public class SavinRecorder : Form {
         this.TopMost = true;
         this.ShowInTaskbar = false;
         this.KeyPreview = true;
+        this.Cursor = Cursors.Cross;
+
+        // 2. ELIMINAR PARPADEO (Double Buffer)
+        this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.DoubleBuffer, true);
+        this.UpdateStyles();
+
+        // 3. EVENTOS
         this.KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) this.Close(); };
         this.MouseDown += (s, e) => { startPos = e.Location; drawing = true; };
         this.MouseMove += (s, e) => { if (drawing) { selection = GetRect(startPos, e.Location); this.Invalidate(); } };
@@ -86,7 +94,16 @@ public class SavinRecorder : Form {
             }
             this.Close(); 
         };
-        this.Paint += (s, e) => { if (drawing) { using (Pen pen = new Pen(Color.Red, 2)) e.Graphics.DrawRectangle(pen, selection); } };
+
+        // 4. DIBUJO DEL RECUADRO (Estilo ShareX)
+        this.Paint += (s, e) => { 
+            if (drawing) { 
+                using (Pen pen = new Pen(Color.Cyan, 3)) { 
+                    pen.DashStyle = System.Drawing.Drawing2D.DashStyle.Dash; 
+                    e.Graphics.DrawRectangle(pen, selection); 
+                } 
+            } 
+        };
     }
 
     private void StartGrabbing(Rectangle rect) {
@@ -100,11 +117,13 @@ public class SavinRecorder : Form {
         p.Start();
         p.PriorityClass = ProcessPriorityClass.AboveNormal; 
     }
-    private Rectangle GetRect(Point p1, Point p2) { return Rectangle.FromLTRB(Math.Min(p1.X, p2.X), Math.Min(p1.Y, p2.Y), Math.Max(p1.X, p2.X), Math.Max(p1.Y, p2.Y)); }
+
+    private Rectangle GetRect(Point p1, Point p2) { 
+        return Rectangle.FromLTRB(Math.Min(p1.X, p2.X), Math.Min(p1.Y, p2.Y), Math.Max(p1.X, p2.X), Math.Max(p1.Y, p2.Y)); 
+    }
 }
 "@
 Add-Type -TypeDefinition $source -ReferencedAssemblies "System.Windows.Forms", "System.Drawing" -OutputAssembly "$InstallDir\SavinEngine.exe" -OutputType WindowsApplication
-
 # 5. SCRIPT DE EXPORTACIÓN (Notificación con Carrete 🎞️)
 $exportScript = @"
 taskkill /IM ffmpeg.exe /T /F 2>`$null
