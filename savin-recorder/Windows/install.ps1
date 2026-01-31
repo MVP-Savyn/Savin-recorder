@@ -1,18 +1,47 @@
 # =========================================================
-# SAVIN-RECORDER 3.2: CARRETE 🎞️ + ABRIR CARPETA (AltGr+O)
+# SAVIN-RECORDER 3.2: INSTALADOR COMPLETO + AUTODECHECK
 # =========================================================
 $InstallDir = "$env:APPDATA\SavinRecorder"
 $BinDir = "$InstallDir\bin"
 $VidDir = [System.IO.Path]::Combine([Environment]::GetFolderPath("MyVideos"), "SavinRecorder")
 $FFmpegExe = "$BinDir\ffmpeg.exe"
+$AHKScript = "$InstallDir\SavinHotkeys.ahk"
 
 Clear-Host
 Write-Host "--- Instalando Savin-Recorder 3.2 (Final Custom) ---" -ForegroundColor Cyan
 
-# 1. Preparar Entorno
+# 1. PREPARAR ENTORNO (Debe ser lo primero para poder mover archivos)
 New-Item -ItemType Directory -Path "$InstallDir", "$BinDir", "$VidDir\MP4", "$VidDir\GIFS" -Force | Out-Null
 
-# 2. MOTOR C# (SavinEngine.exe)
+# 2. COMPROBACIÓN Y DESCARGA DE PAQUETES
+Write-Host "[*] Comprobando paquetes..." -ForegroundColor Yellow
+
+if (Get-Command winget -ErrorAction SilentlyContinue) {
+    # Comprobar/Instalar FFmpeg
+    if (!(Get-Command ffmpeg.exe -ErrorAction SilentlyContinue)) {
+        Write-Host "[!] FFmpeg no detectado. Instalando..."
+        winget install --id GYAN.FFmpeg --silent --accept-package-agreements --accept-source-agreements
+    }
+
+    # Comprobar/Instalar AutoHotkey v2
+    if (!(Get-Command AutoHotkey64.exe -ErrorAction SilentlyContinue)) {
+        Write-Host "[!] AutoHotkey v2 no detectado. Instalando..."
+        winget install --id AutoHotkey.AutoHotkey --version 2.0.11 --silent --accept-package-agreements
+    }
+} else {
+    Write-Host "[!] Winget no disponible. Verifica FFmpeg y AHK manualmente." -ForegroundColor Red
+}
+
+# 3. SINCRONIZAR FFMPEG A BIN LOCAL
+if (!(Test-Path $FFmpegExe)) {
+    $sysFF = (Get-Command ffmpeg.exe -ErrorAction SilentlyContinue).Source
+    if ($sysFF) { 
+        Copy-Item $sysFF $FFmpegExe -Force 
+        Write-Host "[+] FFmpeg vinculado a bin local." -ForegroundColor Green
+    }
+}
+
+# 4. MOTOR C# (SavinEngine.exe)
 $source = @"
 using System;
 using System.Drawing;
@@ -76,7 +105,7 @@ public class SavinRecorder : Form {
 "@
 Add-Type -TypeDefinition $source -ReferencedAssemblies "System.Windows.Forms", "System.Drawing" -OutputAssembly "$InstallDir\SavinEngine.exe" -OutputType WindowsApplication
 
-# 4. SCRIPT DE EXPORTACIÓN (Notificación con Carrete 🎞️)
+# 5. SCRIPT DE EXPORTACIÓN (Notificación con Carrete 🎞️)
 $exportScript = @"
 taskkill /IM ffmpeg.exe /T /F 2>`$null
 `$TempMKV = "$InstallDir\temp.mkv"
@@ -96,7 +125,6 @@ if (`$format -eq "gif") {
 `$Link = curl.exe -F "file=@`$OutputFile" https://0x0.st
 Set-Clipboard -Value `$Link
 
-# NOTIFICACIÓN CON ICONO DE CARRETE (Index 170 de shell32)
 Add-Type -AssemblyName System.Windows.Forms
 `$def = '
 using System;
@@ -120,33 +148,47 @@ if (!([System.Management.Automation.PSTypeName]'IconLoader').Type) { Add-Type -T
 Start-Sleep -Seconds 3
 `$notification.Dispose()
 "@
+[System.IO.File]::WriteAllText("$InstallDir\export.ps1", $exportScript)
 
-[System.IO.File]::WriteAllLines("$InstallDir\export.ps1", $exportScript)
-
-# 5. AutoHotkey v2 (Atajos: Win+Shift+R, AltGr+G, AltGr+H, AltGr+O)
-$ahkPath = "$InstallDir\SavinHotkeys.ahk"
+# 6. AUTOHOTKEY v2 (Atajos)
 $ahkContent = @"
 #Requires AutoHotkey v2.0
 #NoTrayIcon
 #SingleInstance Force
 
-; Grabar Región
 #+r::Run('"$InstallDir\SavinEngine.exe"')
-
-; Exportar GIF
 <^>!g::Run('powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File "$InstallDir\export.ps1" gif', , "Hide")
-
-; Exportar MP4
 <^>!h::Run('powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File "$InstallDir\export.ps1" mp4', , "Hide")
-
-; ABRIR CARPETA DE VIDEOS
 <^>!o::Run('explorer.exe "$VidDir"')
 "@
-[System.IO.File]::WriteAllText($ahkPath, $ahkContent)
+[System.IO.File]::WriteAllText($AHKScript, $ahkContent)
 
-# 6. Reinicio
+# 7. REINICIO Y EJECUCIÓN (Búsqueda Exhaustiva)
 Get-Process "SavinEngine" -ErrorAction SilentlyContinue | Stop-Process -Force
 Get-Process "AutoHotkey*" -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Process $ahkPath
 
-Write-Host "V3.2 INSTALADA. Atajos: Win+Shift+R (Grabar), AltGr+H (MP4), AltGr+G (GIF), AltGr+O (Carpeta)." -ForegroundColor Green
+# Intentar localizar el ejecutable en múltiples rutas
+$AHKPath = (Get-Command "AutoHotkey64.exe" -ErrorAction SilentlyContinue).Source
+
+if (!$AHKPath) {
+    $CommonPaths = @(
+        "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe",
+        "$env:ProgramFiles\AutoHotkey\AutoHotkey64.exe",
+        "$env:LOCALAPPDATA\Programs\AutoHotkey\v2\AutoHotkey64.exe"
+    )
+    foreach ($Path in $CommonPaths) {
+        if (Test-Path $Path) { $AHKPath = $Path; break }
+    }
+}
+
+if ($AHKPath) {
+    Write-Host "[+] AutoHotkey localizado en: $AHKPath" -ForegroundColor Gray
+    Start-Process $AHKPath "`"$AHKScript`""
+    Write-Host "V3.2 INSTALADA Y ACTIVA." -ForegroundColor Green
+} else {
+    Write-Host "--- AVISO ---" -ForegroundColor Yellow
+    Write-Host "La instalacion de AHK es muy reciente. Por favor, cierra y abre de nuevo VS Code"
+    Write-Host "o la terminal para refrescar las rutas de Windows."
+    # Intento desesperado: usar el alias registrado
+    Start-Process "AutoHotkey64.exe" "`"$AHKScript`"" -ErrorAction SilentlyContinue
+}
