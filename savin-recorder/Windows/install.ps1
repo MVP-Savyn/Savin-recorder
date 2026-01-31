@@ -1,104 +1,152 @@
 # =========================================================
-# SAVIN-RECORDER: INSTALADOR TOTAL (LIBERACIÓN DE HOTKEYS)
+# SAVIN-RECORDER 3.2: CARRETE 🎞️ + ABRIR CARPETA (AltGr+O)
 # =========================================================
 $InstallDir = "$env:APPDATA\SavinRecorder"
 $BinDir = "$InstallDir\bin"
 $VidDir = [System.IO.Path]::Combine([Environment]::GetFolderPath("MyVideos"), "SavinRecorder")
 $FFmpegExe = "$BinDir\ffmpeg.exe"
-$StartupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 
-Write-Host "🚀 Savin-Recorder: Configurando sistema..." -ForegroundColor Cyan
+Clear-Host
+Write-Host "--- Instalando Savin-Recorder 3.2 (Final Custom) ---" -ForegroundColor Cyan
 
-# 1. PARCHE REGISTRO (Libera Win+Shift+R - Nivel Pro)
-Write-Host "🔓 Desactivando Recortes nativo para liberar Win+Shift+R..." -ForegroundColor Yellow
-
-# Opción A: Bloqueo de teclas en Explorer
-$regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
-Set-ItemProperty -Path $regPath -Name "DisabledHotkeys" -Value "R"
-
-# Opción B: "Mudar" el atajo de la aplicación de recortes (Para Windows 11)
-$recortesReg = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\ControlPanel"
-Set-ItemProperty -Path $recortesReg -Name "OpenedWithPrintScreenKey" -Value 0 -ErrorAction SilentlyContinue
-
-# Reiniciar Explorer para aplicar
-Stop-Process -Name explorer -Force
-# 2. CREAR CARPETAS
+# 1. Preparar Entorno
 New-Item -ItemType Directory -Path "$InstallDir", "$BinDir", "$VidDir\MP4", "$VidDir\GIFS" -Force | Out-Null
 
-# 3. INSTALAR AUTOHOTKEY Y FFMPEG
-if (!(Get-Command ahk2exe -ErrorAction SilentlyContinue) -and !(Test-Path "C:\Program Files\AutoHotkey")) {
-    winget install --id AutoHotkey.AutoHotkey --silent --accept-source-agreements --accept-package-agreements | Out-Null
-}
-if (!(Test-Path $FFmpegExe)) {
-    Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:TEMP\ffmpeg.zip"
-    Expand-Archive -Path "$env:TEMP\ffmpeg.zip" -DestinationPath "$env:TEMP\ffmpeg_temp" -Force
-    Get-ChildItem -Path "$env:TEMP\ffmpeg_temp" -Filter "ffmpeg.exe" -Recurse | Move-Item -Destination $BinDir -Force
-    Remove-Item "$env:TEMP\ffmpeg.zip"; Remove-Item -Recurse "$env:TEMP\ffmpeg_temp"
-}
+# 2. MOTOR C# (SavinEngine.exe)
+$source = @"
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 
-# 4. SCRIPT SELECTOR DE ÁREA
-@'
-Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-$form = New-Object Windows.Forms.Form
-$form.TransparencyKey = $form.BackColor = [Drawing.Color]::White
-$form.FormBorderStyle = 'None'; $form.TopMost = $true; $form.WindowState = 'Maximized'; $form.Cursor = [Windows.Forms.Cursors]::Cross
-$selection = New-Object Drawing.Rectangle; $startPos = [Drawing.Point]::Empty
-$form.Add_MouseDown({ $script:startPos = $$.Location; $form.BackColor = [Drawing.Color]::Black; $form.Opacity = 0.3 })
-$form.Add_MouseUp({ 
-    $endPos = $$.Location
-    $script:selection = [Drawing.Rectangle]::FromLTRB([Math]::Min($startPos.X, $endPos.X), [Math]::Min($startPos.Y, $endPos.Y), [Math]::Max($startPos.X, $endPos.X), [Math]::Max($startPos.Y, $endPos.Y))
-    $form.Close() 
-})
-$form.ShowDialog() | Out-Null
-if ($selection.Width -gt 0) { Write-Output "$($selection.X),$($selection.Y),$($selection.Width),$($selection.Height)" }
-'@ | Out-File "$InstallDir\selector.ps1" -Encoding utf8
+public class SavinRecorder : Form {
+    private Point startPos;
+    private Rectangle selection = Rectangle.Empty;
+    private bool drawing = false;
 
-# 5. SCRIPT DE GRABACIÓN (Audio Digital WASAPI + Micro)
-$startScript = @"
-`$area = powershell.exe -ExecutionPolicy Bypass -File "$InstallDir\selector.ps1"
-if (!`$area) { exit }
-`$c = `$area -split ','
-& "$FFmpegExe" -y -f gdigrab -draw_mouse 1 -framerate 30 -offset_x `$c[0] -offset_y `$c[1] -video_size `$c[2]x`$c[3] -i desktop -f wasapi -i default -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 192k "$VidDir\temp.mp4"
+    [DllImport("shell32.dll", SetLastError = true)]
+    private static extern void SetCurrentProcessExplicitAppUserModelID([MarshalAs(UnmanagedType.LPWStr)] string AppID);
+
+    [STAThread]
+    public static void Main() {
+        SetCurrentProcessExplicitAppUserModelID("Savin.Recorder.v3");
+        Application.EnableVisualStyles();
+        Application.Run(new SavinRecorder());
+    }
+
+    public SavinRecorder() {
+        Rectangle totalArea = SystemInformation.VirtualScreen;
+        this.StartPosition = FormStartPosition.Manual;
+        this.Location = new Point(totalArea.Left, totalArea.Top);
+        this.Size = new Size(totalArea.Width, totalArea.Height);
+        this.FormBorderStyle = FormBorderStyle.None;
+        this.BackColor = Color.Black;
+        this.Opacity = 0.30;
+        this.TopMost = true;
+        this.ShowInTaskbar = false;
+        this.KeyPreview = true;
+        this.KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) this.Close(); };
+        this.MouseDown += (s, e) => { startPos = e.Location; drawing = true; };
+        this.MouseMove += (s, e) => { if (drawing) { selection = GetRect(startPos, e.Location); this.Invalidate(); } };
+        this.MouseUp += (s, e) => { 
+            selection = GetRect(startPos, e.Location);
+            if (selection.Width > 10 && selection.Height > 10) {
+                selection.Offset(this.Location);
+                StartGrabbing(selection);
+            }
+            this.Close(); 
+        };
+        this.Paint += (s, e) => { if (drawing) { using (Pen pen = new Pen(Color.Red, 2)) e.Graphics.DrawRectangle(pen, selection); } };
+    }
+
+    private void StartGrabbing(Rectangle rect) {
+        int w = rect.Width % 2 == 0 ? rect.Width : rect.Width - 1;
+        int h = rect.Height % 2 == 0 ? rect.Height : rect.Height - 1;
+        string ffmpegPath = "$($FFmpegExe.Replace('\','\\'))";
+        string videoPath = "$($InstallDir.Replace('\','\\'))\\temp.mkv";
+        string args = string.Format("-y -thread_queue_size 512 -f gdigrab -framerate 60 -offset_x {0} -offset_y {1} -video_size {2}x{3} -draw_mouse 1 -i desktop -c:v libx264 -preset ultrafast -crf 18 -pix_fmt yuv420p \"{4}\"", rect.X, rect.Y, w, h, videoPath);
+        Process p = new Process();
+        p.StartInfo = new ProcessStartInfo { FileName = ffmpegPath, Arguments = args, UseShellExecute = false, CreateNoWindow = true };
+        p.Start();
+        p.PriorityClass = ProcessPriorityClass.AboveNormal; 
+    }
+    private Rectangle GetRect(Point p1, Point p2) { return Rectangle.FromLTRB(Math.Min(p1.X, p2.X), Math.Min(p1.Y, p2.Y), Math.Max(p1.X, p2.X), Math.Max(p1.Y, p2.Y)); }
+}
 "@
-$startScript | Out-File "$InstallDir\start.ps1" -Encoding utf8
+Add-Type -TypeDefinition $source -ReferencedAssemblies "System.Windows.Forms", "System.Drawing" -OutputAssembly "$InstallDir\SavinEngine.exe" -OutputType WindowsApplication
 
-# 6. SCRIPT DE EXPORTACIÓN Y SUBIDA
+# 4. SCRIPT DE EXPORTACIÓN (Notificación con Carrete 🎞️)
 $exportScript = @"
-Get-Process ffmpeg -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 800
-`$TempFile = "$VidDir\temp.mp4"; if (!(Test-Path `$TempFile)) { exit }
+taskkill /IM ffmpeg.exe /T /F 2>`$null
+`$TempMKV = "$InstallDir\temp.mkv"
+if (!(Test-Path `$TempMKV)) { exit }
 `$Stamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 `$format = `$args[0]
+
 if (`$format -eq "gif") {
-    `$OutputFile = "$VidDir\GIFS\recording_`$Stamp.gif"
-    & "$FFmpegExe" -i `$TempFile -vf "mpdecimate,fps=12,scale=iw*0.8:-1:flags=lanczos,palettegen=max_colors=32" -y "$InstallDir\palette.png"
-    & "$FFmpegExe" -i `$TempFile -i "$InstallDir\palette.png" -lavfi "mpdecimate,fps=12,scale=iw*0.8:-1:flags=lanczos [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=1" -y `$OutputFile
+    `$OutputFile = "$VidDir\GIFS\rec_`$Stamp.gif"
+    & "$FFmpegExe" -i `$TempMKV -vf "mpdecimate,fps=12,scale=800:-1:flags=lanczos,palettegen" -y "$InstallDir\palette.png"
+    & "$FFmpegExe" -i `$TempMKV -i "$InstallDir\palette.png" -lavfi "mpdecimate,fps=12,scale=800:-1:flags=lanczos [x]; [x][1:v] paletteuse" -y `$OutputFile
 } else {
-    `$OutputFile = "$VidDir\MP4\recording_`$Stamp.mp4"
-    Move-Item `$TempFile `$OutputFile -Force
+    `$OutputFile = "$VidDir\MP4\rec_`$Stamp.mp4"
+    & "$FFmpegExe" -i `$TempMKV -r 60 -c:v libx264 -crf 18 -pix_fmt yuv420p -profile:v baseline -level 3.0 -movflags +faststart -y `$OutputFile
 }
-`$Link = curl.exe -s -F "reqtype=fileupload" -F "time=72h" -F "fileToUpload=@`$OutputFile" https://litterbox.catbox.moe/resources/internals/api.php
+
+`$Link = curl.exe -F "file=@`$OutputFile" https://0x0.st
 Set-Clipboard -Value `$Link
-(New-Object -ComObject WScript.Shell).Popup("Savin-Recorder: Link copiado", 2, "Hecho", 64)
+
+# NOTIFICACIÓN CON ICONO DE CARRETE (Index 170 de shell32)
+Add-Type -AssemblyName System.Windows.Forms
+`$def = '
+using System;
+using System.Runtime.InteropServices;
+using System.Drawing;
+public class IconLoader {
+    [DllImport("shell32.dll", CharSet = CharSet.Auto)]
+    public static extern IntPtr ExtractIcon(IntPtr hInst, string lpszExeFileName, int nIconIndex);
+}'
+if (!([System.Management.Automation.PSTypeName]'IconLoader').Type) { Add-Type -TypeDefinition `$def -ReferencedAssemblies "System.Drawing" }
+
+`$iconPtr = [IconLoader]::ExtractIcon(0, "shell32.dll", 170)
+`$cinemaIcon = [System.Drawing.Icon]::FromHandle(`$iconPtr)
+
+`$notification = New-Object System.Windows.Forms.NotifyIcon
+`$notification.Icon = `$cinemaIcon
+`$notification.BalloonTipTitle = "Savin-Recorder"
+`$notification.BalloonTipText = "Link copiado al portapapeles"
+`$notification.Visible = `$true
+`$notification.ShowBalloonTip(3000)
+Start-Sleep -Seconds 3
+`$notification.Dispose()
 "@
-$exportScript | Out-File "$InstallDir\export.ps1" -Encoding utf8
 
-# 7. ATAJOS (Versión v2 con Gancho Forzado)
+[System.IO.File]::WriteAllLines("$InstallDir\export.ps1", $exportScript)
+
+# 5. AutoHotkey v2 (Atajos: Win+Shift+R, AltGr+G, AltGr+H, AltGr+O)
 $ahkPath = "$InstallDir\SavinHotkeys.ahk"
-$ahkContent = "
+$ahkContent = @"
+#Requires AutoHotkey v2.0
 #NoTrayIcon
-#UseHook ; Fuerza a AHK a interceptar las teclas antes que Windows
-$#+r::Run 'powershell.exe -WindowStyle Hidden -File ""$InstallDir\start.ps1""', , 'Hide'
-<^>!g::Run 'powershell.exe -WindowStyle Hidden -File ""$InstallDir\export.ps1"" gif', , 'Hide'
-<^>!h::Run 'powershell.exe -WindowStyle Hidden -File ""$InstallDir\export.ps1"" mp4', , 'Hide'
-"
-$ahkContent | Out-File $ahkPath -Encoding utf8
+#SingleInstance Force
 
-$WshShell = New-Object -ComObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut("$StartupFolder\SavinRecorder.lnk")
-$Shortcut.TargetPath = $ahkPath
-$Shortcut.Save()
+; Grabar Región
+#+r::Run('"$InstallDir\SavinEngine.exe"')
 
-Start-Process $ahkPath # Inicia los atajos ahora
+; Exportar GIF
+<^>!g::Run('powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File "$InstallDir\export.ps1" gif', , "Hide")
 
-Write-Host "`n✨ TODO LISTO Y LIBERADO ✨" -ForegroundColor Green
-Write-Host "Usa Win+Shift+R para grabar. Windows ya no molestará."
+; Exportar MP4
+<^>!h::Run('powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File "$InstallDir\export.ps1" mp4', , "Hide")
+
+; ABRIR CARPETA DE VIDEOS
+<^>!o::Run('explorer.exe "$VidDir"')
+"@
+[System.IO.File]::WriteAllText($ahkPath, $ahkContent)
+
+# 6. Reinicio
+Get-Process "SavinEngine" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process "AutoHotkey*" -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Process $ahkPath
+
+Write-Host "V3.2 INSTALADA. Atajos: Win+Shift+R (Grabar), AltGr+H (MP4), AltGr+G (GIF), AltGr+O (Carpeta)." -ForegroundColor Green
