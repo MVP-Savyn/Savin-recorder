@@ -70,7 +70,7 @@ if (!(Test-Path $FFmpegExe)) {
         Write-Host "[!] Error: No se pudo localizar ffmpeg en el sistema para vincularlo." -ForegroundColor Red
     }
 }
-# 4. MOTOR C# (SavinEngine.exe) - ESTILO RECORTES PRO (LÍNEA GRUESA + RESOLUCIÓN)
+# 4. MOTOR C# (SavinEngine.exe) - GUIONES ESTÁTICOS (SIN MOVIMIENTO)
 $source = @"
 using System;
 using System.Drawing;
@@ -84,27 +84,21 @@ public class SavinRecorder : Form {
     private Rectangle selection = Rectangle.Empty;
     private bool drawing = false;
 
-    [DllImport("shell32.dll", SetLastError = true)]
-    private static extern void SetCurrentProcessExplicitAppUserModelID([MarshalAs(UnmanagedType.LPWStr)] string AppID);
-
     [STAThread]
     public static void Main() {
-        SetCurrentProcessExplicitAppUserModelID("Savin.Recorder.v3");
         Application.EnableVisualStyles();
         Application.Run(new SavinRecorder());
     }
 
     public SavinRecorder() {
         this.DoubleBuffered = true;
+        this.FormBorderStyle = FormBorderStyle.None;
         this.StartPosition = FormStartPosition.Manual;
         this.Location = new Point(SystemInformation.VirtualScreen.Left, SystemInformation.VirtualScreen.Top);
         this.Size = new Size(SystemInformation.VirtualScreen.Width, SystemInformation.VirtualScreen.Height);
-        this.FormBorderStyle = FormBorderStyle.None;
         
         this.BackColor = Color.Black;
         this.Opacity = 0.50; 
-        this.TransparencyKey = Color.LimeGreen; 
-        
         this.TopMost = true;
         this.ShowInTaskbar = false;
         this.Cursor = Cursors.Cross;
@@ -114,47 +108,58 @@ public class SavinRecorder : Form {
         this.MouseMove += (s, e) => { 
             if (drawing) { 
                 selection = GetRect(startPos, e.Location); 
+                ActualizarAgujero();
                 this.Invalidate(); 
             } 
         };
         this.MouseUp += (s, e) => { 
             drawing = false;
-            if (selection.Width > 10 && selection.Height > 10) {
-                StartGrabbing(selection);
-            }
+            if (selection.Width > 10 && selection.Height > 10) { StartGrabbing(selection); }
             this.Close(); 
         };
     }
 
+    private void ActualizarAgujero() {
+        Region r = new Region(new Rectangle(0, 0, this.Width, this.Height));
+        if (selection.Width > 0 && selection.Height > 0) {
+            r.Exclude(selection);
+        }
+        this.Region = r;
+    }
+
     protected override void OnPaint(PaintEventArgs e) {
         if (drawing && selection.Width > 0 && selection.Height > 0) {
-            // 1. Perforamos el hueco
-            using (SolidBrush holeBrush = new SolidBrush(Color.LimeGreen)) {
-                e.Graphics.FillRectangle(holeBrush, selection);
-            }
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.None; 
 
-            // 2. Dibujamos la línea blanca discontinua gruesa
-            using (Pen pen = new Pen(Color.White, 2)) { // Grosor a 2
+            using (Pen pen = new Pen(Color.White, 2)) {
                 pen.DashStyle = DashStyle.Dash;
-                pen.DashPattern = new float[] { 5, 5 }; // Línea de 5px, Espacio de 5px
-                e.Graphics.DrawRectangle(pen, selection.X, selection.Y, selection.Width - 1, selection.Height - 1);
+                pen.DashPattern = new float[] { 8, 8 };
+                
+                // EL TRUCO: Fijamos el desfase a 0 para que los puntos no "bailen"
+                pen.DashOffset = 0;
+
+                // Dibujamos las 4 líneas por separado para control total
+                int x = selection.X - 1;
+                int y = selection.Y - 1;
+                int w = selection.Width + 1;
+                int h = selection.Height + 1;
+
+                g.DrawLine(pen, x, y, x + w, y);         // Arriba
+                g.DrawLine(pen, x, y + h, x + w, y + h); // Abajo
+                g.DrawLine(pen, x, y, x, y + h);         // Izquierda
+                g.DrawLine(pen, x + w, y, x + w, y + h); // Derecha
             }
 
-            // 3. Dibujamos la resolución en la esquina inferior derecha
             string resText = string.Format("{0} x {1}", selection.Width, selection.Height);
-            using (Font font = new Font("Segoe UI", 10, FontStyle.Bold)) {
+            using (Font font = new Font("Segoe UI", 9, FontStyle.Bold)) {
                 Size textSize = TextRenderer.MeasureText(resText, font);
-                // Posición: justo debajo del borde derecho inferior
-                Point textPos = new Point(selection.Right - textSize.Width, selection.Bottom + 5);
+                int posX = selection.Right - textSize.Width;
+                int posY = selection.Bottom + 5;
+                if (posY + textSize.Height > this.Height) posY = selection.Top - textSize.Height - 5;
                 
-                // Si se sale de la pantalla por abajo, lo ponemos por dentro
-                if (textPos.Y + textSize.Height > this.Height) {
-                    textPos.Y = selection.Bottom - textSize.Height - 5;
-                }
-
-                // Dibujamos un pequeño fondo negro para que se lea bien el texto
-                e.Graphics.FillRectangle(Brushes.Black, new Rectangle(textPos, textSize));
-                e.Graphics.DrawString(resText, font, Brushes.White, textPos);
+                g.FillRectangle(Brushes.Black, new Rectangle(posX, posY, textSize.Width, textSize.Height));
+                g.DrawString(resText, font, Brushes.White, new Point(posX, posY));
             }
         }
     }
@@ -164,12 +169,7 @@ public class SavinRecorder : Form {
         int h = rect.Height % 2 == 0 ? rect.Height : rect.Height - 1;
         string ffmpegPath = "$($FFmpegExe.Replace('\','\\'))";
         string videoPath = "$($InstallDir.Replace('\','\\'))\\temp.mkv";
-
-        string args = string.Format("-y -rtbufsize 150M -f gdigrab -framerate 60 -offset_x {0} -offset_y {1} -video_size {2}x{3} -draw_mouse 1 -i desktop " + 
-                      "-f dshow -i audio=\"virtual-audio-capturer\" -af \"aresample=44100,volume=0.9\" " +
-                      "-c:v libx264 -preset ultrafast -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -ar 44100 -ac 2 \"{4}\"", 
-                      rect.X, rect.Y, w, h, videoPath);
-
+        string args = string.Format("-y -rtbufsize 150M -f gdigrab -framerate 60 -offset_x {0} -offset_y {1} -video_size {2}x{3} -draw_mouse 1 -i desktop -f dshow -i audio=\"virtual-audio-capturer\" -af \"aresample=44100,volume=0.9\" -c:v libx264 -preset ultrafast -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -ar 44100 -ac 2 \"{4}\"", rect.X, rect.Y, w, h, videoPath);
         Process p = new Process();
         p.StartInfo = new ProcessStartInfo { FileName = ffmpegPath, Arguments = args, UseShellExecute = false, CreateNoWindow = true };
         p.Start();
