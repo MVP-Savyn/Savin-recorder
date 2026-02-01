@@ -1,48 +1,63 @@
 # =========================================================
-# SAVIN-RECORDER: DESINSTALADOR DE RESTAURACIÓN TOTAL
+# SAVIN-RECORDER 3.4: DESINSTALADOR AUTOMÁTICO TOTAL
 # =========================================================
 Clear-Host
-Write-Host "🚮 Iniciando desinstalación y restauración del sistema..." -ForegroundColor Cyan
+Write-Host "Iniciando desinstalacion..." -ForegroundColor Cyan
 
 $InstallDir = "$env:APPDATA\SavinRecorder"
-$StartupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-$ShortcutPath = "$StartupFolder\SavinRecorder.lnk"
+$VidDir = Join-Path ([Environment]::GetFolderPath("MyVideos")) "SavinRecorder"
 
-# 1. DETENER PROCESOS
-Write-Host "🛑 Deteniendo grabaciones y atajos activos..." -ForegroundColor Gray
-Get-Process ffmpeg -ErrorAction SilentlyContinue | Stop-Process -Force
-Get-Process AutoHotkey* -ErrorAction SilentlyContinue | Stop-Process -Force
+# 1. DETENER PROCESOS (Liberar raton y teclado)
+Write-Host "Deteniendo procesos activos..." -ForegroundColor Gray
+taskkill /F /IM "SavinEngine*" /T 2>$null
+taskkill /F /IM "ffmpeg.exe" /T 2>$null
+taskkill /F /IM "AutoHotkey*" /T 2>$null
 
-# 2. RESTAURAR EL REGISTRO (Devolver Win+Shift+R a Windows)
-Write-Host "🔓 Restaurando atajos originales de Windows..." -ForegroundColor Yellow
+# 2. DESINSTALACION DE PAQUETES (WINGET)
+Add-Type -AssemblyName System.Windows.Forms
+$resDep = [System.Windows.Forms.MessageBox]::Show("¿Deseas desinstalar tambien FFmpeg y AutoHotkey?", "Savin-Recorder", "YesNo", "Question")
+
+if ($resDep -eq "Yes") {
+    Write-Host "Eliminando paquetes via Winget..." -ForegroundColor Yellow
+    winget uninstall --id GYAN.FFmpeg --silent 2>$null
+    winget uninstall --id AutoHotkey.AutoHotkey --silent 2>$null
+}
+
+# 3. ELIMINAR DRIVER DE AUDIO
+$DriverUninst = "${env:ProgramFiles(x86)}\screen-capture-recorder\Uninstall.exe"
+if (Test-Path $DriverUninst) {
+    Write-Host "Eliminando driver de audio..." -ForegroundColor Yellow
+    Start-Process -FilePath $DriverUninst -ArgumentList "/S" -Wait
+}
+
+# 4. RESTAURAR REGISTRO (Recuperar Win+Shift+R)
 $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
-$existing = (Get-ItemProperty -Path $regPath -Name "DisabledHotkeys" -ErrorAction SilentlyContinue).DisabledHotkeys
-if ($existing -like "*R*") {
-    $newValue = $existing.Replace("R", "")
+$regKey = Get-ItemProperty -Path $regPath -Name "DisabledHotkeys" -ErrorAction SilentlyContinue
+if ($regKey -and $regKey.DisabledHotkeys -like "*R*") {
+    Write-Host "Restaurando atajos de Windows..." -ForegroundColor Yellow
+    $newValue = $regKey.DisabledHotkeys.Replace("R", "")
     if ([string]::IsNullOrWhiteSpace($newValue)) {
         Remove-ItemProperty -Path $regPath -Name "DisabledHotkeys" -Force
     } else {
         Set-ItemProperty -Path $regPath -Name "DisabledHotkeys" -Value $newValue
     }
-    Write-Host "✅ Registro restaurado. Reiniciando Explorer..." -ForegroundColor Green
     Stop-Process -Name explorer -Force
 }
 
-# 3. ELIMINAR INICIO AUTOMÁTICO
-if (Test-Path $ShortcutPath) {
-    Remove-Item $ShortcutPath -Force
-    Write-Host "✅ Inicio automático eliminado." -ForegroundColor Green
-}
-
-# 4. LIMPIEZA DE ARCHIVOS
+# 5. LIMPIEZA DE ARCHIVOS
 if (Test-Path $InstallDir) {
-    # Borramos la carpeta de la app (scripts, binarios de ffmpeg, etc.)
-    Remove-Item -Recurse -Force $InstallDir
-    Write-Host "✅ Archivos de la aplicación eliminados." -ForegroundColor Green
+    Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue
+    Write-Host "Archivos de aplicacion eliminados." -ForegroundColor Green
 }
 
-# 5. RESUMEN FINAL
-Write-Host ""
-Write-Host "✨ EL SISTEMA HA SIDO RESTAURADO ✨" -ForegroundColor Green
-Write-Host "Nota: Se han conservado tus videos en 'Videos\SavinRecorder'." -ForegroundColor White
-Write-Host "Nota: Si deseas quitar AutoHotkey por completo, hazlo desde 'Configuración > Aplicaciones'." -ForegroundColor Gray
+# 6. GESTION DE VIDEOS
+if (Test-Path $VidDir) {
+    $resVid = [System.Windows.Forms.MessageBox]::Show("¿Deseas borrar tambien tus grabaciones?", "Savin-Recorder", "YesNo", "Question")
+    if ($resVid -eq "Yes") {
+        Remove-Item -Path $VidDir -Recurse -Force
+        Write-Host "Grabaciones eliminadas." -ForegroundColor Green
+    }
+}
+
+Write-Host "Desinstalacion completa. Sistema restaurado." -ForegroundColor Green
+Start-Sleep -Seconds 2
