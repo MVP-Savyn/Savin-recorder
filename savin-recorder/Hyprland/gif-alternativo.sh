@@ -3,7 +3,7 @@ OUTDIR="$(xdg-user-dir VIDEOS)"
 mkdir -p "$OUTDIR/GIFS"
 TEMPFILE="$OUTDIR/GIFS/temp.mp4"
 
-# 1. Detener wf-recorder con elegancia
+# Detener wf-recorder
 if [ -f /tmp/wfrecorder.pid ]; then
     PID=$(cat /tmp/wfrecorder.pid)
     kill -INT "$PID"
@@ -14,31 +14,25 @@ fi
 STAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 GIFFILE="$OUTDIR/GIFS/recording_${STAMP}.gif"
 
-# Pequeña espera para que el archivo de video se cierre bien
-sleep 0.5
+sleep 0.3
 
-# 2. GENERAR PALETA (ShareX Style)
-# Subimos a 256 colores para máxima fidelidad
 ffmpeg -i "$TEMPFILE" \
-  -vf "fps=15,scale=800:-1:flags=lanczos,palettegen=stats_mode=full" \
+  -vf "mpdecimate,fps=20,scale=iw*0.8:-1:flags=lanczos,palettegen=max_colors=32:stats_mode=diff" \
   -y "$OUTDIR/GIFS/palette.png"
 
-# 3. CREAR GIF FINAL
-# Usamos sierra2_4a para un degradado suave y ligero
 ffmpeg -i "$TEMPFILE" -i "$OUTDIR/GIFS/palette.png" \
-  -lavfi "fps=15,scale=800:-1:flags=lanczos [x]; [x][1:v] paletteuse=dither=sierra2_4a:diff_mode=rectangle" \
+  -lavfi "mpdecimate,fps=20,scale=iw*0.8:-1:flags=lanczos [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=1:diff_mode=rectangle" \
   -y "$GIFFILE"
 
 # --- SUBIDA Y NOTIFICACIÓN ---
-# He mantenido tu lógica de tmpfiles.org
 LINK=$(curl -s -F "file=@$GIFFILE" https://tmpfiles.org/api/v1/upload \
   | jq -r '.data.url' \
   | sed 's#tmpfiles.org/#tmpfiles.org/dl/#')
 
-if [ "$LINK" != "null" ] && [ -n "$LINK" ]; then
+if [ "$LINK" != "null" ]; then
     echo -n "$LINK" | wl-copy
-    notify-send "Savin-Recorder" "GIF optimizado y enlace copiado" -i camera-video
+    notify-send "Grabación finalizada" "Enlace copiado al portapapeles"
     echo "Enlace directo: $LINK"
 else
-    notify-send "Error" "No se pudo subir el archivo." -i error
+    notify-send "Error" "No se pudo subir el archivo."
 fi
