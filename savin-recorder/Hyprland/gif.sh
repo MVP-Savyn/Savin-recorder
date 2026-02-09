@@ -17,11 +17,11 @@ GIFFILE="$OUTDIR/GIFS/recording_${STAMP}.gif"
 sleep 0.3
 
 ffmpeg -i "$TEMPFILE" \
-  -vf "mpdecimate,fps=12,scale=iw*0.8:-1:flags=lanczos,palettegen=max_colors=32:stats_mode=diff" \
+  -vf "mpdecimate,fps=20,scale=iw*0.8:-1:flags=lanczos,palettegen=max_colors=32:stats_mode=diff" \
   -y "$OUTDIR/GIFS/palette.png"
 
 ffmpeg -i "$TEMPFILE" -i "$OUTDIR/GIFS/palette.png" \
-  -lavfi "mpdecimate,fps=12,scale=iw*0.8:-1:flags=lanczos [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=1:diff_mode=rectangle" \
+  -lavfi "mpdecimate,fps=20,scale=iw*0.8:-1:flags=lanczos [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=1:diff_mode=rectangle" \
   -y "$GIFFILE"
 
 # --- SUBIDA Y NOTIFICACIÓN ---
