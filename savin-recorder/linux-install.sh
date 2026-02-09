@@ -1,45 +1,56 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-echo "--- SAVIN-RECORDER: Instalador Global ---"
+echo "--- SAVIN-RECORDER GLOBAL INSTALLER ---"
 
-# 1. DETECTAR SERVIDOR GRÁFICO (Wayland o X11)
-if [ "$XDG_SESSION_TYPE" == "wayland" ]; then
-    SESSION="wayland"
+# 1. Crear estructura base de directorios
+TARGET_SCRIPTS="$HOME/.config/savin-recorder/scripts"
+mkdir -p "$TARGET_SCRIPTS"
+mkdir -p "$(xdg-user-dir VIDEOS)/SavinRecorder/GIFS"
+mkdir -p "$(xdg-user-dir VIDEOS)/SavinRecorder/MP4"
+
+# 2. Detectar Gestor de Paquetes y dependencias
+if command -v pacman >/dev/null; then
+    INSTALL="sudo pacman -S --noconfirm --needed"
+elif command -v apt-get >/dev/null; then
+    INSTALL="sudo apt-get install -y"
+elif command -v dnf >/dev/null; then
+    INSTALL="sudo dnf install -y"
 else
-    SESSION="x11"
+    echo "⚠️ Gestor de paquetes no soportado. Instala dependencias manualmente."
+    INSTALL="true"
 fi
 
-# 2. DETECTAR ESCRITORIO (DE)
-# Pasamos todo a minúsculas para evitar errores
-DESKTOP=$(echo "$XDG_CURRENT_DESKTOP" | tr '[:upper:]' '[:lower:]')
+# 3. Detectar Entorno
+SESSION_TYPE=$(echo "$XDG_SESSION_TYPE" | tr '[:upper:]' '[:lower:]' || echo "x11")
+DESKTOP=$(echo "$XDG_CURRENT_DESKTOP" | tr '[:upper:]' '[:lower:]' || echo "unknown")
 
-echo "🔍 Sistema detectado: $DESKTOP sobre $SESSION"
+COMMON_DEPS="ffmpeg jq curl libnotify"
 
-# 3. LÓGICA DE DIRECCIONAMIENTO
-TARGET_DIR=""
-
-if [[ "$DESKTOP" == *"hyprland"* ]]; then
-    TARGET_DIR="Hyprland"
-elif [[ "$DESKTOP" == *"gnome"* ]]; then
-    TARGET_DIR="GNOME"
-elif [[ "$DESKTOP" == *"kde"* || "$DESKTOP" == *"plasma"* ]]; then
-    # Plasma puede ser Wayland o X11, lo tratamos en su carpeta
-    TARGET_DIR="PLASMA"
-elif [ "$SESSION" == "x11" ]; then
-    # Si no es ninguno de los anteriores pero es X11 (i3, bspwm, Xfce...)
-    TARGET_DIR="X11"
+if [ "$SESSION_TYPE" == "wayland" ]; then
+    SPECIFIC_DEPS="wf-recorder slurp wl-clipboard"
+    if [[ "$DESKTOP" == *"hyprland"* ]]; then FOLDER="Hyprland"
+    elif [[ "$DESKTOP" == *"gnome"* ]]; then FOLDER="GNOME"
+    elif [[ "$DESKTOP" == *"plasma"* ]]; then FOLDER="PLASMA"
+    else FOLDER="Wayland-Universal"; fi
 else
-    echo "❌ Error: Entorno no soportado automáticamente."
+    SPECIFIC_DEPS="xrectsel xclip"
+    FOLDER="X11"
+fi
+
+# 4. Instalación
+echo "📦 Instalando dependencias: $COMMON_DEPS $SPECIFIC_DEPS"
+$INSTALL $COMMON_DEPS $SPECIFIC_DEPS
+
+if [ -d "./$FOLDER" ]; then
+    echo "🚀 Ejecutando instalador específico para $FOLDER..."
+    chmod +x "$FOLDER/install.sh"
+    # Pasamos el TARGET_SCRIPTS como variable para que todos usen la misma ruta
+    export SAVIN_TARGET="$TARGET_SCRIPTS"
+    cd "$FOLDER" && ./install.sh
+else
+    echo "❌ Carpeta $FOLDER no encontrada en el repositorio."
     exit 1
 fi
 
-# 4. EJECUCIÓN DEL INSTALADOR REAL
-if [ -d "./$TARGET_DIR" ]; then
-    echo "🚀 Iniciando instalación para $TARGET_DIR..."
-    chmod +x "$TARGET_DIR/install.sh"
-    cd "$TARGET_DIR" && ./install.sh
-else
-    echo "❌ Error: No se encontró la carpeta $TARGET_DIR en el repositorio."
-    exit 1
-fi
+echo "✨ Savin-Recorder instalado con éxito."
