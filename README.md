@@ -25,6 +25,8 @@ Solo tienes que ejecutar el instalador raíz. Él se encargará de detectar tu e
 
 ## 🐧 Linux
 LA versión de Linux incluye un instalador inteligente que detecta tu servidor gráfico (**Wayland/X11**) y tu entorno de escritorio (**GNOME, Plasma, Hyprland**) para configurar las dependencias y atajos de teclado automáticamente.
+<br> <br>
+IMPORTANTE: Por ahora sólo puedo confirmar que funciona en hyprland, estoy trabajando en la compatibilidad con el resto de escritorios.
 
 ### Requisitos:
 - Gestor de paquetes compatible (`pacman`, `apt`, `dnf`).
