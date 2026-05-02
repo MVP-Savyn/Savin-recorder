@@ -32,4 +32,4 @@ LA versión de Linux incluye un instalador inteligente que detecta tu servidor g
 
 ### Comando de una línea:
 ```bash
-git clone [https://github.com/tu-usuario/savin-recorder.git](https://github.com/tu-usuario/savin-recorder.git) && cd savin-recorder && chmod +x linux-install.sh && ./linux-install.sh
+git clone [https://github.com/MVP-Savyn/savin-recorder.git](https://github.com/MVP-Savyn/savin-recorder.git) && cd savin-recorder && chmod +x linux-install.sh && ./linux-install.sh
